@@ -21,7 +21,7 @@ const blacklist = JSON.parse(fs.readFileSync(path.normalize('./resources/blackli
 let numTotalEntities = _.keys(sortedClasses).reduce((acc, val) => acc + sortedClasses[val], 0);
 
 /* Currently only supports to generate 1 question at a time. */
-function generateQuestions(num) {
+function generateQuestions(num, startTime, retries) {
     /* 
     Step 1: Get random entity from DBPedia
     Step 2: Get entity label    
@@ -36,7 +36,8 @@ function generateQuestions(num) {
     let entity = null;
     let entityLabel = '';
 
-    let startTime = moment().toNow();
+    if (!startTime) startTime = moment();
+    if (!retries) retries = 0;
 
     return fetchRandomEntity()
         .then(e => { entity = e; })
@@ -70,12 +71,13 @@ function generateQuestions(num) {
                 q: `What is the ${prop.label} of ${entityLabel}?`,
                 correctAnswer: prop.correctAnswer,
                 alternativeAnswers: prop.alternativeAnswers,
-                processingTime: moment().subtract(startTime).millisecond() + ' ms'
+                processingTime: moment().diff(startTime) + ' ms',
+                retries: retries
             };
         })
         .catch((e) => {
             console.log(`\n[INFO] Failed to fetch complete data for entity ${entity}. Retrying another one. (${e})\n`);
-            return generateQuestions(num);
+            return generateQuestions(num, startTime, ++retries);
         });
 }
 

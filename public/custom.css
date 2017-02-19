@@ -1,0 +1,33 @@
+body {
+    padding-top: 5rem;
+}
+
+.starter-template {
+    text-align: center;
+}
+
+.quizContainer {
+    padding-top: 20px;
+    text-align: center;
+}
+
+.questionContainer {
+    margin-top: 15px;
+    display: none;
+}
+
+button {
+    cursor: pointer;
+}
+
+.answerButton {
+    margin: 5px;
+}
+
+#mainButton {
+    margin-bottom: 15px;
+}
+
+.alert {
+    display: none;
+}

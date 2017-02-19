@@ -4,6 +4,8 @@ const express = require('express'),
     app = express(),
     generator = require('./generator');
 
+app.use(express.static('public'));
+
 app.get('/api/random', (req, res) => {
     generator.generateRandom().then((data) => {
         res.json(data);
