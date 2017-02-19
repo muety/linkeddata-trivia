@@ -13,12 +13,14 @@ const blacklist = JSON.parse(fs.readFileSync(path.normalize('./resources/blackli
     sortedClasses = JSON.parse(fs.readFileSync(path.normalize('./resources/classes_sorted.json'))),
     prefixString = generatePrefixString(prefixMap);
 
-generateQuestions(5);
+generateQuestions(1);
 
-function generateQuestions(numQuestionsPerEntity) {
+function generateQuestions(num) {
     /* 
     Step 1: Get relevant properties for this entity
     Step 2: Combine relevant properties with those actually available and fetch meta data for them 
+    Step 3: Fetch actual value for the specific entity and property to be the correct answer
+    Step 4: Generate or fetch 3 alternative answers. For dates, years and numbers random values within an interval are generated. For resources values the labels of three other entities within the same class are fetched. Plain string and other types are ignored for now.
     */
 
     let promises = [];
@@ -30,7 +32,7 @@ function generateQuestions(numQuestionsPerEntity) {
 
     Promise.all(promises)
         .then(values => _.intersection(values[0], values[1]))
-        .then(values => multiFetchPropertyInfo(values.slice(0, numQuestionsPerEntity)))
+        .then(values => multiFetchPropertyInfo(values.slice(0, num)))
         .then(values => {
             propertyInfos = values;
             return _.sortBy(_.keys(values));
@@ -47,10 +49,11 @@ function generateQuestions(numQuestionsPerEntity) {
             values.forEach((v, i) => propertyInfos[sortedPropertyKeys[i]].alternativeAnswers = v);
         })
         .then(() => {
-            console.log(1);
+            console.log(`[INFO] Fetched data for entity ${e}.`);
         })
-        .catch(() => {
-            console.log(1);
+        .catch((e) => {
+            console.log(`[INFO] Failed to fetch complete data for entity ${e}. Retrying another one.`);
+            return generateQuestions(num);
         });
 }
 
@@ -74,8 +77,8 @@ function fetchAlternativeAnswers(propertyInfo) {
                 randomNumericAnswers(3, parseFloat(propertyInfo.correctAnswer), true).then(resolve);
                 break;
             default:
-                if (_.keys(sortedClasses).includes(toPrefixedUri(answerClass))) randomClassAnswers(3, answerClass);
-                else resolve(null);
+                if (_.keys(sortedClasses).includes(toPrefixedUri(answerClass))) randomClassAnswers(3, answerClass).then(resolve);
+                else reject();
         }
     });
 }
@@ -189,8 +192,8 @@ function extractAnswerClass(property) {
 }
 
 function randomYearAnswers(num, reference) {
-    let before = Math.min(reference + 800, 2017);
-    let after = reference - 800;
+    let before = Math.min(reference + 200, 2017);
+    let after = reference - 200;
 
     let randoms = [];
     for (let i = 0; i < num; i++) {
@@ -211,22 +214,27 @@ function randomNumericAnswers(num, reference, float) {
 }
 
 function randomClassAnswers(num, classUri) {
-    return new Promise((resolve, reject) => {
-        classUri = classUri.indexOf('http://') > -1 ? '<' + classUri + '>' : classUri;
-        let q = prefixString + ` 
-        SELECT ?e WHERE { ?e rdf:type ?class } 
-        OFFSET ${_.random(0, getClassCount(classUri) - num, false)} 
-        LIMIT ${num}`;
-        client.query(prefixString + ` 
-        SELECT ?e WHERE { ?e rdf:type ?class } 
-        OFFSET ${_.random(0, getClassCount(classUri) - num, false)} 
-        LIMIT ${num}`)
-            .bind('class', classUri)
-            .execute((err, results) => {
-                if (err || !results || !results.results || !results.results.bindings) return reject();
-                resolve(results.results.bindings.map(v => v.e.value));
-            });
-    });
+    let promises = [];
+    classUri = classUri.indexOf('http://') == 0 ? '<' + classUri + '>' : classUri;
+
+    for (let i = 0; i < num; i++) {
+        promises.push(new Promise((resolve, reject) => {
+            client.query(prefixString + ` 
+                SELECT ?e WHERE {
+                    ?r rdf:type ?class .
+                    ?r rdfs:label ?e .
+                    FILTER(lang(?e) = "en")
+                } 
+                OFFSET ${_.random(0, getClassCount(classUri) - 1, false)} 
+                LIMIT 1`)
+                .bind('class', classUri)
+                .execute((err, results) => {
+                    if (err || !results || !results.results || !results.results.bindings) return reject();
+                    resolve(results.results.bindings[0].e.value);
+                });
+        }));
+    }
+    return Promise.all(promises);
 }
 
 function orderOfMagnitude(n) {
