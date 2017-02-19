@@ -20,8 +20,6 @@ const blacklist = JSON.parse(fs.readFileSync(path.normalize('./resources/blackli
 
 let numTotalEntities = _.keys(sortedClasses).reduce((acc, val) => acc + sortedClasses[val], 0);
 
-generateQuestions(1).then(console.log);
-
 /* Currently only supports to generate 1 question at a time. */
 function generateQuestions(num) {
     /* 
@@ -37,6 +35,8 @@ function generateQuestions(num) {
     let propertyInfos = {};
     let entity = null;
     let entityLabel = '';
+
+    let startTime = moment().toNow();
 
     return fetchRandomEntity()
         .then(e => { entity = e; })
@@ -69,7 +69,8 @@ function generateQuestions(num) {
             return {
                 q: `What is the ${prop.label} of ${entityLabel}?`,
                 correctAnswer: prop.correctAnswer,
-                alternativeAnswers: prop.alternativeAnswers
+                alternativeAnswers: prop.alternativeAnswers,
+                processingTime: moment().subtract(startTime).millisecond() + ' ms'
             };
         })
         .catch((e) => {
@@ -363,4 +364,10 @@ function toPrefixedUri(uri) {
     let prefix = _.keys(inversePrefixMap).filter(k => uri.indexOf(k) > -1)[0];
     let shortUri = uri.replace(prefix, inversePrefixMap[prefix] + ':');
     return shortUri;
+}
+
+module.exports = {
+    generateRandom: () => {
+        return generateQuestions(1);
+    }
 }
