@@ -13,31 +13,35 @@ const blacklist = JSON.parse(fs.readFileSync(path.normalize('./resources/blackli
     sortedClasses = JSON.parse(fs.readFileSync(path.normalize('./resources/classes_sorted.json'))),
     prefixString = generatePrefixString(prefixMap);
 
-generateQuestions(1);
+generateQuestions(1).then(console.log);
 
+/* Currently only supports to generate 1 question at a time. */
 function generateQuestions(num) {
     /* 
     Step 1: Get relevant properties for this entity
     Step 2: Combine relevant properties with those actually available and fetch meta data for them 
-    Step 3: Fetch actual value for the specific entity and property to be the correct answer
-    Step 4: Generate or fetch 3 alternative answers. For dates, years and numbers random values within an interval are generated. For resources values the labels of three other entities within the same class are fetched. Plain string and other types are ignored for now.
+    Step 3: Get entity label
+    Step 4: Fetch actual value for the specific entity and property to be the correct answer
+    Step 5: Generate or fetch 3 alternative answers. For dates, years and numbers random values within an interval are generated. For resources values the labels of three other entities within the same class are fetched. Plain string and other types are ignored for now.
     */
 
     let promises = [];
     let propertyInfos = {};
-    let e = getRandomEntity();
+    let entity = getRandomEntity();
+    let entityLabel = '';
 
-    promises.push(fetchEntityProperties(e));
-    promises.push(getTopEntityProperties(e));
+    promises.push(fetchEntityProperties(entity));
+    promises.push(getTopEntityProperties(entity, true));
 
-    Promise.all(promises)
+    return Promise.all(promises)
         .then(values => _.intersection(values[0], values[1]))
         .then(values => multiFetchPropertyInfo(values.slice(0, num)))
-        .then(values => {
-            propertyInfos = values;
-            return _.sortBy(_.keys(values));
+        .then(values => { propertyInfos = values; })
+        .then(() => fetchLabel(entity))
+        .then(label => {
+            entityLabel = label;
         })
-        .then(values => multiFetchCorrectAnswerValue(e, values))
+        .then(() => multiFetchCorrectAnswerValue(entity, _.sortBy(_.keys(propertyInfos))))
         .then(values => {
             let sortedPropertyKeys = _.sortBy(_.keys(propertyInfos));
             values.forEach((v, i) => propertyInfos[sortedPropertyKeys[i]].correctAnswer = v);
@@ -49,10 +53,18 @@ function generateQuestions(num) {
             values.forEach((v, i) => propertyInfos[sortedPropertyKeys[i]].alternativeAnswers = v);
         })
         .then(() => {
-            console.log(`[INFO] Fetched data for entity ${e}.`);
+            console.log(`[INFO] Fetched data for entity ${entity}.`);
+        })
+        .then(() => {
+            let prop = propertyInfos[_.keys(propertyInfos)[0]]; // Only support one at a time for now
+            return {
+                q: `What is the ${prop.label} of ${entityLabel}?`,
+                correctAnswer: prop.correctAnswer,
+                alternativeAnswers: prop.alternativeAnswers
+            };
         })
         .catch((e) => {
-            console.log(`[INFO] Failed to fetch complete data for entity ${e}. Retrying another one.`);
+            console.log(`[INFO] Failed to fetch complete data for entity ${entity}. Retrying another one.`);
             return generateQuestions(num);
         });
 }
@@ -98,11 +110,15 @@ function fetchCorrectAnswerValue(entityUri, propertyUri) {
     return new Promise((resolve, reject) => {
         propertyUri = propertyUri.indexOf('http://') > -1 ? '<' + propertyUri + '>' : propertyUri;
         entityUri = entityUri.indexOf('http://') > -1 ? '<' + entityUri + '>' : entityUri;
-        client.query(prefixString + `SELECT ?answer WHERE { ?resource ?property ?answer }`)
+        client.query(prefixString + `SELECT ?answer WHERE {
+            ?resource ?property ?answerRes .
+            ?answerRes rdfs:label ?answer .
+            FILTER(lang(?answer) = "en")
+        }`)
             .bind('resource', entityUri)
             .bind('property', propertyUri)
             .execute((err, results) => {
-                if (err || !results || !results.results || !results.results.bindings) return reject();
+                if (err || !results || !results.results.bindings.length) return reject();
                 resolve(results.results.bindings[0].answer.value);
             });
     });
@@ -125,9 +141,25 @@ function multiFetchPropertyInfo(propertyUris) {
     });
 }
 
+function fetchLabel(entityUri) {
+    return new Promise((resolve, reject) => {
+        entityUri = entityUri.indexOf('http://') == 0 ? '<' + entityUri + '>' : entityUri;
+        client.query(prefixString + `
+        SELECT ?label WHERE {
+            ?entity rdfs:label ?label .
+            FILTER(lang(?label) = "en")
+        }`)
+            .bind('entity', entityUri)
+            .execute((err, results) => {
+                if (err || !results || !results.results.bindings.length) return reject();
+                resolve(results.results.bindings[0].label.value);
+            });
+    });
+}
+
 function fetchPropertyInfo(propertyUri) {
     return new Promise((resolve, reject) => {
-        propertyUri = propertyUri.indexOf('http://') > -1 ? '<' + propertyUri + '>' : propertyUri;
+        propertyUri = propertyUri.indexOf('http://') == 0 ? '<' + propertyUri + '>' : propertyUri;
         client.query(prefixString + `
         SELECT ?range ?label WHERE {
             ?property rdfs:label ?label .
@@ -136,7 +168,7 @@ function fetchPropertyInfo(propertyUri) {
         }`)
             .bind('property', propertyUri)
             .execute((err, results) => {
-                if (err || !results || !results.results || !results.results.bindings || !results.results.bindings[0].label || !results.results.bindings[0].range) return reject();
+                if (err || !results || !results.results.bindings.length) return reject();
                 resolve({
                     label: results.results.bindings[0].label.value,
                     range: results.results.bindings[0].range.value
@@ -166,7 +198,7 @@ function getRandomEntity() {
     //return 'dbr:Boston';
 }
 
-function getTopEntityProperties(entityUri) {
+function getTopEntityProperties(entityUri, randomPickOne) {
     let dummyUri1 = 'https://api.myjson.com/bins/13c6t5'; // Boston
     let dummyUri2 = 'https://api.myjson.com/bins/dhjq1'; // Marie_Curie
 
@@ -181,7 +213,8 @@ function getTopEntityProperties(entityUri) {
 
     return request(opts)
         .then(results => Array.isArray(results) ? results : _.keys(results))
-        .then(results => results.filter(v => !blacklist.includes(v)));
+        .then(results => results.filter(v => !blacklist.includes(v)))
+        .then(results => randomPickOne ? [results[_.random(0, results.length - 1, false)]] : results);
 }
 
 function extractAnswerClass(property) {
@@ -229,7 +262,7 @@ function randomClassAnswers(num, classUri) {
                 LIMIT 1`)
                 .bind('class', classUri)
                 .execute((err, results) => {
-                    if (err || !results || !results.results || !results.results.bindings) return reject();
+                    if (err || !results || !results.results.bindings.length) return reject();
                     resolve(results.results.bindings[0].e.value);
                 });
         }));

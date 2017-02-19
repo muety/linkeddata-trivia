@@ -11,6 +11,7 @@
     "http://dbpedia.org/ontology/abstract",
     "http://xmlns.com/foaf/0.1/name",
     "http://dbpedia.org/property/name",
+    "http://dbpedia.org/property/id",
     "http://dbpedia.org/property/c",
     "http://dbpedia.org/property/h",
     "http://dbpedia.org/property/hasPhotoCollection",
