@@ -7,8 +7,10 @@ const SparqlClient = require('sparql-client'),
     request = require('request-promise'),
     _ = require('lodash');
 
-const blacklist = JSON.parse(fs.readFileSync(path.normalize('./blacklist.json'))),
-    prefixMap = JSON.parse(fs.readFileSync(path.normalize('./prefixes.json'))),
+const blacklist = JSON.parse(fs.readFileSync(path.normalize('./resources/blacklist.json'))),
+    prefixMap = JSON.parse(fs.readFileSync(path.normalize('./resources/prefixes.json'))),
+    inversePrefixMap = _.invert(prefixMap),
+    sortedClasses = JSON.parse(fs.readFileSync(path.normalize('./resources/classes_sorted.json'))),
     prefixString = generatePrefixString(prefixMap);
 
 generateQuestions(5);
@@ -60,7 +62,8 @@ function multiFetchAlternativeAnswers(propertyInfos) {
 
 function fetchAlternativeAnswers(propertyInfo) {
     return new Promise((resolve, reject) => {
-        switch (extractAnswerClass(propertyInfo)) {
+        let answerClass = extractAnswerClass(propertyInfo);
+        switch (answerClass) {
             case 'year':
                 randomYearAnswers(3, parseInt(propertyInfo.correctAnswer)).then(resolve);
                 break;
@@ -71,7 +74,8 @@ function fetchAlternativeAnswers(propertyInfo) {
                 randomNumericAnswers(3, parseFloat(propertyInfo.correctAnswer), true).then(resolve);
                 break;
             default:
-                reject();
+                if (_.keys(sortedClasses).includes(toPrefixedUri(answerClass))) randomClassAnswers(3, answerClass);
+                else resolve(null);
         }
     });
 }
@@ -155,8 +159,8 @@ function generatePrefixString(prefixes) {
 }
 
 function getRandomEntity() {
-    //return 'dbr:Marie_Curie';
-    return 'dbr:Boston';
+    return 'dbr:Marie_Curie';
+    //return 'dbr:Boston';
 }
 
 function getTopEntityProperties(entityUri) {
@@ -164,7 +168,7 @@ function getTopEntityProperties(entityUri) {
     let dummyUri2 = 'https://api.myjson.com/bins/dhjq1'; // Marie_Curie
 
     let opts = {
-        uri: dummyUri1,
+        uri: dummyUri2,
         qs: {
             entity: entityUri,
             alg: '8'
@@ -181,7 +185,7 @@ function extractAnswerClass(property) {
     if (property.range === 'http://www.w3.org/2001/XMLSchema#gYear') return 'year';
     else if (parseInt(property.correctAnswer.match(/^-?\d*(\d+)?$/)) > 0) return 'int';
     else if (parseFloat(property.correctAnswer.match(/^-?\d*(\.\d+)?$/)) > 0) return 'float';
-    return null;
+    else return property.range;
 }
 
 function randomYearAnswers(num, reference) {
@@ -206,6 +210,25 @@ function randomNumericAnswers(num, reference, float) {
     return Promise.resolve(randoms);
 }
 
+function randomClassAnswers(num, classUri) {
+    return new Promise((resolve, reject) => {
+        classUri = classUri.indexOf('http://') > -1 ? '<' + classUri + '>' : classUri;
+        let q = prefixString + ` 
+        SELECT ?e WHERE { ?e rdf:type ?class } 
+        OFFSET ${_.random(0, getClassCount(classUri) - num, false)} 
+        LIMIT ${num}`;
+        client.query(prefixString + ` 
+        SELECT ?e WHERE { ?e rdf:type ?class } 
+        OFFSET ${_.random(0, getClassCount(classUri) - num, false)} 
+        LIMIT ${num}`)
+            .bind('class', classUri)
+            .execute((err, results) => {
+                if (err || !results || !results.results || !results.results.bindings) return reject();
+                resolve(results.results.bindings.map(v => v.e.value));
+            });
+    });
+}
+
 function orderOfMagnitude(n) {
     return Math.floor(Math.log(n) / Math.LN10 + 0.000000001);
 }
@@ -214,4 +237,15 @@ function decimalPlaces(num) {
     var match = ('' + num).match(/(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/);
     if (!match) { return 0; }
     return Math.max(0, (match[1] ? match[1].length : 0) - (match[2] ? +match[2] : 0));
+}
+
+function getClassCount(classUri) {
+    return sortedClasses[toPrefixedUri(classUri)];
+}
+
+function toPrefixedUri(uri) {
+    uri = uri.replace(/</, '').replace(/>/, '');
+    let prefix = _.keys(inversePrefixMap).filter(k => uri.indexOf(k) > -1)[0];
+    let shortUri = uri.replace(prefix, inversePrefixMap[prefix] + ':');
+    return shortUri;
 }
