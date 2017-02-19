@@ -71,7 +71,7 @@ function fetchAlternativeAnswers(propertyInfo) {
                 randomNumericAnswers(3, parseFloat(propertyInfo.correctAnswer), true).then(resolve);
                 break;
             default:
-                resolve([]);
+                reject();
         }
     });
 }
@@ -129,7 +129,7 @@ function fetchPropertyInfo(propertyUri) {
         }`)
             .bind('property', propertyUri)
             .execute((err, results) => {
-                if (err || !results || !results.results || !results.results.bindings) return reject();
+                if (err || !results || !results.results || !results.results.bindings || !results.results.bindings[0].label || !results.results.bindings[0].range) return reject();
                 resolve({
                     label: results.results.bindings[0].label.value,
                     range: results.results.bindings[0].range.value
