@@ -7,10 +7,11 @@ const SparqlClient = require('sparql-client'),
     request = require('request-promise'),
     _ = require('lodash');
 
-const prefixMap = JSON.parse(fs.readFileSync(path.normalize('./prefixes.json'))),
+const blacklist = JSON.parse(fs.readFileSync(path.normalize('./blacklist.json'))),
+    prefixMap = JSON.parse(fs.readFileSync(path.normalize('./prefixes.json'))),
     prefixString = generatePrefixString(prefixMap);
 
-generateQuestions(2);
+generateQuestions(5);
 
 function generateQuestions(numQuestionsPerEntity) {
     /* 
@@ -27,8 +28,22 @@ function generateQuestions(numQuestionsPerEntity) {
 
     Promise.all(promises)
         .then(values => _.intersection(values[0], values[1]))
-        .then(values => fetchPropertiesInfos(values.slice(0, numQuestionsPerEntity)))
-        .then(values => { propertyInfos = values; })
+        .then(values => multiFetchPropertyInfo(values.slice(0, numQuestionsPerEntity)))
+        .then(values => {
+            propertyInfos = values;
+            return _.sortBy(_.keys(values));
+        })
+        .then(values => multiFetchCorrectAnswerValue(e, values))
+        .then(values => {
+            let sortedPropertyKeys = _.sortBy(_.keys(propertyInfos));
+            values.forEach((v, i) => propertyInfos[sortedPropertyKeys[i]].correctAnswer = v);
+            return propertyInfos;
+        })
+        .then(values => multiFetchAlternativeAnswers(propertyInfos))
+        .then(values => {
+            let sortedPropertyKeys = _.sortBy(_.keys(propertyInfos));
+            values.forEach((v, i) => propertyInfos[sortedPropertyKeys[i]].alternativeAnswers = v);
+        })
         .then(() => {
             console.log(1);
         })
@@ -37,8 +52,39 @@ function generateQuestions(numQuestionsPerEntity) {
         });
 }
 
+function multiFetchAlternativeAnswers(propertyInfos) {
+    let promises = [];
+    _.sortBy(_.keys(propertyInfos)).forEach(key => promises.push(fetchAlternativeAnswers(propertyInfos[key])));
+    return Promise.all(promises);
+}
+
+function fetchAlternativeAnswers(propertyInfo) {
+    return new Promise((resolve, reject) => {
+        switch (extractAnswerClass(propertyInfo)) {
+            case 'year':
+                randomYearAnswers(3, Math.min(parseInt(propertyInfo.correctAnswer) + 800, 2017), parseInt(propertyInfo.correctAnswer) - 800).then(resolve);
+                break;
+            default:
+                resolve([]);
+        }
+    });
+}
+
+// TODO: Use construct query instead of multiple sequential select queries.
+function multiFetchCorrectAnswerValue(entityUri, propertyUris) {
+    return new Promise((resolve, reject) => {
+        let promises = [];
+        propertyUris.forEach(uri => promises.push(fetchCorrectAnswerValue(entityUri, uri)));
+        Promise.all(promises)
+            .then(resolve)
+            .catch(reject);
+    });
+}
+
 function fetchCorrectAnswerValue(entityUri, propertyUri) {
     return new Promise((resolve, reject) => {
+        propertyUri = propertyUri.indexOf('http://') > -1 ? '<' + propertyUri + '>' : propertyUri;
+        entityUri = entityUri.indexOf('http://') > -1 ? '<' + entityUri + '>' : entityUri;
         client.query(prefixString + `SELECT ?answer WHERE { ?resource ?property ?answer }`)
             .bind('resource', entityUri)
             .bind('property', propertyUri)
@@ -49,10 +95,11 @@ function fetchCorrectAnswerValue(entityUri, propertyUri) {
     });
 }
 
-function fetchPropertiesInfos(propertyUris) {
+// TODO: Use construct query instead of multiple sequential select queries.
+function multiFetchPropertyInfo(propertyUris) {
     return new Promise((resolve, reject) => {
         let promises = [];
-        propertyUris.map(uri => uri.indexOf('http://') > -1 ? '<' + uri + '>' : uri).forEach(uri => promises.push(fetchPropertyInfo(uri)));
+        propertyUris.forEach(uri => promises.push(fetchPropertyInfo(uri)));
         Promise.all(promises)
             .then((results) => {
                 return results.reduce((acc, val, i) => {
@@ -67,6 +114,7 @@ function fetchPropertiesInfos(propertyUris) {
 
 function fetchPropertyInfo(propertyUri) {
     return new Promise((resolve, reject) => {
+        propertyUri = propertyUri.indexOf('http://') > -1 ? '<' + propertyUri + '>' : propertyUri;
         client.query(prefixString + `
         SELECT ?range ?label WHERE {
             ?property rdfs:label ?label .
@@ -97,7 +145,7 @@ function fetchEntityProperties(entityUri) {
 }
 
 function generatePrefixString(prefixes) {
-    return Object.keys(prefixes).map(k => `prefix ${k}: <${prefixes[k]}>\n`).toString().replace(/,/g, '');
+    return _.keys(prefixes).map(k => `prefix ${k}: <${prefixes[k]}>\n`).toString().replace(/,/g, '');
 }
 
 function getRandomEntity() {
@@ -114,5 +162,20 @@ function getTopEntityProperties(entityUri) {
         json: true
     };
 
-    return request(opts).then(results => Array.isArray(results) ? results : Object.keys(results));
+    return request(opts)
+        .then(results => Array.isArray(results) ? results : _.keys(results))
+        .then(results => results.filter(v => !blacklist.includes(v)));
+}
+
+function extractAnswerClass(property) {
+    if (property.range === 'http://www.w3.org/2001/XMLSchema#gYear') return 'year';
+    return null;
+}
+
+function randomYearAnswers(num, before, after) {
+    let randoms = [];
+    for (let i = 0; i < num; i++) {
+        randoms.push(_.random(after, before, false));
+    }
+    return Promise.resolve(randoms);
 }
