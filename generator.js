@@ -9,7 +9,8 @@ const SparqlClient = require('sparql-client'),
     fs = require('fs'),
     path = require('path'),
     request = require('request-promise'),
-    _ = require('lodash');
+    _ = require('lodash'),
+    moment = require('moment');
 
 const blacklist = JSON.parse(fs.readFileSync(path.normalize('./resources/blacklist.json'))),
     prefixMap = JSON.parse(fs.readFileSync(path.normalize('./resources/prefixes.json'))),
@@ -94,6 +95,9 @@ function fetchAlternativeAnswers(propertyInfo) {
         switch (answerClass) {
             case 'year':
                 randomYearAnswers(3, parseInt(propertyInfo.correctAnswer)).then(resolve);
+                break;
+            case 'date':
+                randomDateAnswers(3, propertyInfo.correctAnswer).then(resolve);
                 break;
             case 'int':
                 randomNumericAnswers(3, parseInt(propertyInfo.correctAnswer), false).then(resolve);
@@ -263,9 +267,24 @@ function getTopEntityProperties(entityUri, entityLabel) {
 
 function extractAnswerClass(property) {
     if (property.range === 'http://www.w3.org/2001/XMLSchema#gYear') return 'year';
+    else if (property.range === 'http://www.w3.org/2001/XMLSchema#date') return 'data';
     else if (parseInt(property.correctAnswer.match(/^-?\d*(\d+)?$/)) > 0) return 'int';
     else if (parseFloat(property.correctAnswer.match(/^-?\d*(\.\d+)?$/)) > 0) return 'float';
     else return property.range;
+}
+
+function randomDateAnswers(num, reference) {
+    console.time('randomDateAnswers');
+
+    let referenceDate = moment(reference);
+
+    let randoms = [];
+    for (let i = 0; i < num; i++) {
+        if (i % 2 == 0) randoms.push(referenceDate.clone().add(_.random(0, 2920), 'days').format('YYYY-MM-DD'));
+        else randoms.push(referenceDate.clone().subtract(_.random(0, 2920), 'days').format('YYYY-MM-DD'));
+    }
+    console.timeEnd('randomDateAnswers');
+    return Promise.resolve(randoms);
 }
 
 function randomYearAnswers(num, reference) {
