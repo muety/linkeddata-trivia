@@ -62,7 +62,13 @@ function fetchAlternativeAnswers(propertyInfo) {
     return new Promise((resolve, reject) => {
         switch (extractAnswerClass(propertyInfo)) {
             case 'year':
-                randomYearAnswers(3, Math.min(parseInt(propertyInfo.correctAnswer) + 800, 2017), parseInt(propertyInfo.correctAnswer) - 800).then(resolve);
+                randomYearAnswers(3, parseInt(propertyInfo.correctAnswer)).then(resolve);
+                break;
+            case 'int':
+                randomNumericAnswers(3, parseInt(propertyInfo.correctAnswer), false).then(resolve);
+                break;
+            case 'float':
+                randomNumericAnswers(3, parseFloat(propertyInfo.correctAnswer), true).then(resolve);
                 break;
             default:
                 resolve([]);
@@ -149,12 +155,16 @@ function generatePrefixString(prefixes) {
 }
 
 function getRandomEntity() {
-    return 'dbr:Marie_Curie';
+    //return 'dbr:Marie_Curie';
+    return 'dbr:Boston';
 }
 
 function getTopEntityProperties(entityUri) {
+    let dummyUri1 = 'https://api.myjson.com/bins/13c6t5'; // Boston
+    let dummyUri2 = 'https://api.myjson.com/bins/dhjq1'; // Marie_Curie
+
     let opts = {
-        uri: 'https://api.myjson.com/bins/dhjq1',
+        uri: dummyUri1,
         qs: {
             entity: entityUri,
             alg: '8'
@@ -169,13 +179,39 @@ function getTopEntityProperties(entityUri) {
 
 function extractAnswerClass(property) {
     if (property.range === 'http://www.w3.org/2001/XMLSchema#gYear') return 'year';
+    else if (parseInt(property.correctAnswer.match(/^-?\d*(\d+)?$/)) > 0) return 'int';
+    else if (parseFloat(property.correctAnswer.match(/^-?\d*(\.\d+)?$/)) > 0) return 'float';
     return null;
 }
 
-function randomYearAnswers(num, before, after) {
+function randomYearAnswers(num, reference) {
+    let before = Math.min(reference + 800, 2017);
+    let after = reference - 800;
+
     let randoms = [];
     for (let i = 0; i < num; i++) {
         randoms.push(_.random(after, before, false));
     }
     return Promise.resolve(randoms);
+}
+
+function randomNumericAnswers(num, reference, float) {
+    let oom = orderOfMagnitude(reference);
+    let fixed = decimalPlaces(reference);
+
+    let randoms = [];
+    for (let i = 0; i < num; i++) {
+        randoms.push(_.random(reference - Math.pow(10, oom - 1) * 9, reference + Math.pow(10, oom - 1) * 9, float).toFixed(fixed));
+    }
+    return Promise.resolve(randoms);
+}
+
+function orderOfMagnitude(n) {
+    return Math.floor(Math.log(n) / Math.LN10 + 0.000000001);
+}
+
+function decimalPlaces(num) {
+    var match = ('' + num).match(/(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/);
+    if (!match) { return 0; }
+    return Math.max(0, (match[1] ? match[1].length : 0) - (match[2] ? +match[2] : 0));
 }
