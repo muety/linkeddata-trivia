@@ -1,7 +1,11 @@
 'use strict';
 
+const SPARQL_ENDPOINT = 'http://dbpedia.org/sparql',
+    //RANKING_ENDPOINT = 'http://80.241.215.122:8899/api/ranking';
+    RANKING_ENDPOINT = 'http://localhost:8080/api/ranking';
+
 const SparqlClient = require('sparql-client'),
-    client = new SparqlClient('http://dbpedia.org/sparql'),
+    client = new SparqlClient(SPARQL_ENDPOINT),
     fs = require('fs'),
     path = require('path'),
     request = require('request-promise'),
@@ -13,34 +17,40 @@ const blacklist = JSON.parse(fs.readFileSync(path.normalize('./resources/blackli
     sortedClasses = JSON.parse(fs.readFileSync(path.normalize('./resources/classes_sorted.json'))),
     prefixString = generatePrefixString(prefixMap);
 
+let numTotalEntities = _.keys(sortedClasses).reduce((acc, val) => acc + sortedClasses[val], 0);
+
 generateQuestions(1).then(console.log);
 
 /* Currently only supports to generate 1 question at a time. */
 function generateQuestions(num) {
     /* 
-    Step 1: Get relevant properties for this entity
-    Step 2: Combine relevant properties with those actually available and fetch meta data for them 
-    Step 3: Get entity label
-    Step 4: Fetch actual value for the specific entity and property to be the correct answer
-    Step 5: Generate or fetch 3 alternative answers. For dates, years and numbers random values within an interval are generated. For resources values the labels of three other entities within the same class are fetched. Plain string and other types are ignored for now.
+    Step 1: Get random entity from DBPedia
+    Step 2: Get entity label    
+    Step 3: Get relevant properties for this entity
+    Step 4: Combine relevant properties with those actually available and fetch meta data for them 
+    Step 5: Fetch actual value for the specific entity and property to be the correct answer
+    Step 6: Generate or fetch 3 alternative answers. For dates, years and numbers random values within an interval are generated. For resources values the labels of three other entities within the same class are fetched. Plain string and other types are ignored for now.
     */
 
     let promises = [];
     let propertyInfos = {};
-    let entity = getRandomEntity();
+    let entity = null;
     let entityLabel = '';
 
-    promises.push(fetchEntityProperties(entity));
-    promises.push(getTopEntityProperties(entity, true));
-
-    return Promise.all(promises)
+    return fetchRandomEntity()
+        .then(e => { entity = e; })
+        .then(() => fetchLabel(entity))
+        .then(label => { entityLabel = label; })
+        .then(() => {
+            let promises = [];
+            promises.push(fetchEntityProperties(entity));
+            promises.push(getTopEntityProperties(entity, entityLabel));
+            return Promise.all(promises);
+        })
         .then(values => _.intersection(values[0], values[1]))
+        .then(values => [values[_.random(0, values.length - 1, false)]]) // only select one property at a time
         .then(values => multiFetchPropertyInfo(values.slice(0, num)))
         .then(values => { propertyInfos = values; })
-        .then(() => fetchLabel(entity))
-        .then(label => {
-            entityLabel = label;
-        })
         .then(() => multiFetchCorrectAnswerValue(entity, _.sortBy(_.keys(propertyInfos))))
         .then(values => {
             let sortedPropertyKeys = _.sortBy(_.keys(propertyInfos));
@@ -53,9 +63,7 @@ function generateQuestions(num) {
             values.forEach((v, i) => propertyInfos[sortedPropertyKeys[i]].alternativeAnswers = v);
         })
         .then(() => {
-            console.log(`[INFO] Fetched data for entity ${entity}.`);
-        })
-        .then(() => {
+            console.log(`\n[INFO] Fetched data for entity ${entity}.\n`);
             let prop = propertyInfos[_.keys(propertyInfos)[0]]; // Only support one at a time for now
             return {
                 q: `What is the ${prop.label} of ${entityLabel}?`,
@@ -64,15 +72,20 @@ function generateQuestions(num) {
             };
         })
         .catch((e) => {
-            console.log(`[INFO] Failed to fetch complete data for entity ${entity}. Retrying another one.`);
+            console.log(`\n[INFO] Failed to fetch complete data for entity ${entity}. Retrying another one. (${e})\n`);
             return generateQuestions(num);
         });
 }
 
 function multiFetchAlternativeAnswers(propertyInfos) {
+    console.time('multiFetchAlternativeAnswers');
     let promises = [];
     _.sortBy(_.keys(propertyInfos)).forEach(key => promises.push(fetchAlternativeAnswers(propertyInfos[key])));
-    return Promise.all(promises);
+    return Promise.all(promises)
+        .then(values => {
+            console.timeEnd('multiFetchAlternativeAnswers');
+            return values;
+        });
 }
 
 function fetchAlternativeAnswers(propertyInfo) {
@@ -90,20 +103,21 @@ function fetchAlternativeAnswers(propertyInfo) {
                 break;
             default:
                 if (_.keys(sortedClasses).includes(toPrefixedUri(answerClass))) randomClassAnswers(3, answerClass).then(resolve);
-                else reject();
+                else reject(1);
         }
     });
 }
 
 // TODO: Use construct query instead of multiple sequential select queries.
 function multiFetchCorrectAnswerValue(entityUri, propertyUris) {
-    return new Promise((resolve, reject) => {
-        let promises = [];
-        propertyUris.forEach(uri => promises.push(fetchCorrectAnswerValue(entityUri, uri)));
-        Promise.all(promises)
-            .then(resolve)
-            .catch(reject);
-    });
+    console.time('multiFetchAlternativeAnswers');
+    let promises = [];
+    propertyUris.forEach(uri => promises.push(fetchCorrectAnswerValue(entityUri, uri)));
+    return Promise.all(promises)
+        .then(values => {
+            console.timeEnd('multiFetchAlternativeAnswers');
+            return values;
+        });
 }
 
 function fetchCorrectAnswerValue(entityUri, propertyUri) {
@@ -111,14 +125,14 @@ function fetchCorrectAnswerValue(entityUri, propertyUri) {
         propertyUri = propertyUri.indexOf('http://') > -1 ? '<' + propertyUri + '>' : propertyUri;
         entityUri = entityUri.indexOf('http://') > -1 ? '<' + entityUri + '>' : entityUri;
         client.query(prefixString + `SELECT ?answer WHERE {
-            ?resource ?property ?answerRes .
-            ?answerRes rdfs:label ?answer .
-            FILTER(lang(?answer) = "en")
-        }`)
+                ?resource ?property ?answerRes .
+                ?answerRes rdfs:label ?answer .
+                FILTER(lang(?answer) = "en")
+            }`)
             .bind('resource', entityUri)
             .bind('property', propertyUri)
             .execute((err, results) => {
-                if (err || !results || !results.results.bindings.length) return reject();
+                if (err || !results || !results.results.bindings.length) return reject(2);
                 resolve(results.results.bindings[0].answer.value);
             });
     });
@@ -126,6 +140,7 @@ function fetchCorrectAnswerValue(entityUri, propertyUri) {
 
 // TODO: Use construct query instead of multiple sequential select queries.
 function multiFetchPropertyInfo(propertyUris) {
+    console.time('multiFetchPropertyInfo');
     return new Promise((resolve, reject) => {
         let promises = [];
         propertyUris.forEach(uri => promises.push(fetchPropertyInfo(uri)));
@@ -136,39 +151,28 @@ function multiFetchPropertyInfo(propertyUris) {
                     return acc;
                 }, {});
             })
+            .then(values => {
+                console.timeEnd('multiFetchPropertyInfo');
+                return values;
+            })
             .then(resolve)
             .catch(reject);
     });
 }
 
-function fetchLabel(entityUri) {
-    return new Promise((resolve, reject) => {
-        entityUri = entityUri.indexOf('http://') == 0 ? '<' + entityUri + '>' : entityUri;
-        client.query(prefixString + `
-        SELECT ?label WHERE {
-            ?entity rdfs:label ?label .
-            FILTER(lang(?label) = "en")
-        }`)
-            .bind('entity', entityUri)
-            .execute((err, results) => {
-                if (err || !results || !results.results.bindings.length) return reject();
-                resolve(results.results.bindings[0].label.value);
-            });
-    });
-}
-
 function fetchPropertyInfo(propertyUri) {
     return new Promise((resolve, reject) => {
+        if (!propertyUri) return reject(9);
         propertyUri = propertyUri.indexOf('http://') == 0 ? '<' + propertyUri + '>' : propertyUri;
         client.query(prefixString + `
-        SELECT ?range ?label WHERE {
-            ?property rdfs:label ?label .
-            ?property rdfs:range ?range .
-            FILTER(lang(?label) = "en")
-        }`)
+            SELECT ?range ?label WHERE {
+                ?property rdfs:label ?label .
+                ?property rdfs:range ?range .
+                FILTER(lang(?label) = "en")
+            }`)
             .bind('property', propertyUri)
             .execute((err, results) => {
-                if (err || !results || !results.results.bindings.length) return reject();
+                if (err || !results || !results.results.bindings.length) return reject(4);
                 resolve({
                     label: results.results.bindings[0].label.value,
                     range: results.results.bindings[0].range.value
@@ -178,35 +182,71 @@ function fetchPropertyInfo(propertyUri) {
 }
 
 function fetchEntityProperties(entityUri) {
+    console.time('fetchEntityProperties');
     return new Promise((resolve, reject) => {
-        client.query(prefixString + 'SELECT DISTINCT(?p) WHERE { ?resource ?p _:bn }')
+        client.query(prefixString + `SELECT DISTINCT(?p) WHERE {
+                ?resource ?p _:bn1 .
+                ?p rdfs:label _:bn2
+            }`)
             .bind('resource', entityUri)
             .execute((err, results) => {
-                if (err) return reject();
+                console.timeEnd('fetchEntityProperties');
+                if (err) return reject(5);
                 let properties = results.results.bindings.map(b => b.p.value);
                 resolve(properties);
             });
     });
 }
 
+function fetchLabel(entityUri) {
+    console.time('fetchLabel');
+    return new Promise((resolve, reject) => {
+        entityUri = entityUri.indexOf('http://') == 0 ? '<' + entityUri + '>' : entityUri;
+        client.query(prefixString + `
+            SELECT ?label WHERE {
+                ?entity rdfs:label ?label .
+                FILTER(lang(?label) = "en")
+            }`)
+            .bind('entity', entityUri)
+            .execute((err, results) => {
+                console.timeEnd('fetchLabel')
+                if (err || !results || !results.results.bindings.length) return reject(3);
+                resolve(results.results.bindings[0].label.value);
+            });
+    });
+}
+
+
 function generatePrefixString(prefixes) {
     return _.keys(prefixes).map(k => `prefix ${k}: <${prefixes[k]}>\n`).toString().replace(/,/g, '');
 }
 
-function getRandomEntity() {
-    return 'dbr:Marie_Curie';
-    //return 'dbr:Boston';
+function fetchRandomEntity() {
+    console.time('fetchRandomEntity');
+    return new Promise((resolve, reject) => {
+        client.query(prefixString + `SELECT ?e WHERE { 
+                ?e _:bn1 _:bn2 . 
+                ?e dbo:wikiPageID _:bn3 .
+                ?e rdfs:label _:bn4 
+            } 
+            OFFSET ${_.random(0, numTotalEntities)} 
+            LIMIT 1`)
+            .execute((err, results) => {
+                console.timeEnd('fetchRandomEntity');
+                if (err || !results || !results.results.bindings.length) return reject(6);
+                resolve(toPrefixedUri(results.results.bindings[0].e.value));
+            });
+    });
 }
 
-function getTopEntityProperties(entityUri, randomPickOne) {
-    let dummyUri1 = 'https://api.myjson.com/bins/13c6t5'; // Boston
-    let dummyUri2 = 'https://api.myjson.com/bins/dhjq1'; // Marie_Curie
+function getTopEntityProperties(entityUri, entityLabel) {
+    console.time('getTopEntityProperties');
 
     let opts = {
-        uri: dummyUri2,
+        uri: RANKING_ENDPOINT,
         qs: {
-            entity: entityUri,
-            alg: '8'
+            q: entityLabel,
+            top: 50
         },
         json: true
     };
@@ -214,7 +254,11 @@ function getTopEntityProperties(entityUri, randomPickOne) {
     return request(opts)
         .then(results => Array.isArray(results) ? results : _.keys(results))
         .then(results => results.filter(v => !blacklist.includes(v)))
-        .then(results => randomPickOne ? [results[_.random(0, results.length - 1, false)]] : results);
+        .then(results => results.filter(v => v.indexOf('/property/') === -1)) // dbp:-properties don't have ranges and labels
+        .then(results => {
+            console.timeEnd('getTopEntityProperties');
+            return results;
+        });
 }
 
 function extractAnswerClass(property) {
@@ -225,6 +269,8 @@ function extractAnswerClass(property) {
 }
 
 function randomYearAnswers(num, reference) {
+    console.time('randomYearAnswers');
+
     let before = Math.min(reference + 200, 2017);
     let after = reference - 200;
 
@@ -232,10 +278,13 @@ function randomYearAnswers(num, reference) {
     for (let i = 0; i < num; i++) {
         randoms.push(_.random(after, before, false));
     }
+    console.timeEnd('randomYearAnswers');
     return Promise.resolve(randoms);
 }
 
 function randomNumericAnswers(num, reference, float) {
+    console.time('randomNumericAnswers');
+
     let oom = orderOfMagnitude(reference);
     let fixed = decimalPlaces(reference);
 
@@ -243,6 +292,7 @@ function randomNumericAnswers(num, reference, float) {
     for (let i = 0; i < num; i++) {
         randoms.push(_.random(reference - Math.pow(10, oom - 1) * 9, reference + Math.pow(10, oom - 1) * 9, float).toFixed(fixed));
     }
+    console.timeEnd('randomNumericAnswers');
     return Promise.resolve(randoms);
 }
 
@@ -250,6 +300,7 @@ function randomClassAnswers(num, classUri) {
     let promises = [];
     classUri = classUri.indexOf('http://') == 0 ? '<' + classUri + '>' : classUri;
 
+    console.time('randomClassAnswers');
     for (let i = 0; i < num; i++) {
         promises.push(new Promise((resolve, reject) => {
             client.query(prefixString + ` 
@@ -262,12 +313,16 @@ function randomClassAnswers(num, classUri) {
                 LIMIT 1`)
                 .bind('class', classUri)
                 .execute((err, results) => {
-                    if (err || !results || !results.results.bindings.length) return reject();
+                    if (err || !results || !results.results.bindings.length) return reject(7);
                     resolve(results.results.bindings[0].e.value);
                 });
         }));
     }
-    return Promise.all(promises);
+    return Promise.all(promises)
+        .then(values => {
+            console.timeEnd('randomClassAnswers');
+            return values;
+        });
 }
 
 function orderOfMagnitude(n) {
