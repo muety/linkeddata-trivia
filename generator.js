@@ -192,7 +192,8 @@ function fetchEntityProperties(entityUri) {
     return new Promise((resolve, reject) => {
         client.query(prefixString + `SELECT DISTINCT(?p) WHERE {
                 ?resource ?p _:bn1 .
-                ?p rdfs:label _:bn2
+                ?p rdfs:label _:bn2 .
+                FILTER(lang(_:bn2) = "en")
             }`)
             .bind('resource', entityUri)
             .execute((err, results) => {
