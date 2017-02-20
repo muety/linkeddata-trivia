@@ -1,26 +1,30 @@
 {
-  "name": "dbpedia-quiz",
-  "version": "0.0.1",
-  "description": "Auto-generated trivia questions based on DBPedia data.",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [
-    "dbpedia",
-    "linked",
-    "data",
-    "game",
-    "trivia"
-  ],
-  "author": "Ferdinand Mütsch",
-  "license": "MIT",
-  "dependencies": {
-    "express": "^4.14.1",
-    "lodash": "^4.17.4",
-    "moment": "^2.17.1",
-    "request": "^2.79.0",
-    "request-promise": "^4.1.1",
-    "sparql-client": "thomasfr/node-sparql-client"
-  }
+    "name": "dbpedia-quiz",
+    "version": "0.0.1",
+    "description": "Auto-generated quiz questions based on DBPedia data.",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js"
+    },
+    "keywords": [
+        "dbpedia",
+        "linked",
+        "data",
+        "game",
+        "trivia"
+    ],
+    "author": "Ferdinand Mütsch",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/n1try/linkeddata-trivia"
+    },
+    "dependencies": {
+        "express": "^4.14.1",
+        "lodash": "^4.17.4",
+        "moment": "^2.17.1",
+        "request": "^2.79.0",
+        "request-promise": "^4.1.1",
+        "sparql-client": "thomasfr/node-sparql-client"
+    }
 }
