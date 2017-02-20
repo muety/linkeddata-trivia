@@ -3,12 +3,12 @@ let btnTextOriginal = btn.text();
 let answerButtonsElem = $('#answerButtons');
 let questionHeadingElem = $('#questionHeading');
 let questionContainerElem = $('.questionContainer');
-let alert = $('.alert');
+let alertElem = $('.alert');
 
 btn.click(() => {
     btn.attr("disabled", true);
     btn.text('↺ Loading ...');
-    alert.show();
+    alertElem.show();
     answerButtonsElem.empty();
     questionHeadingElem.empty();
 
@@ -26,7 +26,7 @@ btn.click(() => {
         btn.attr("disabled", false);
         btn.text(btnTextOriginal);
 
-        alert.hide();
+        alertElem.hide();
         questionContainerElem.show();
     });
 });
