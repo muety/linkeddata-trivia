@@ -1,6 +1,6 @@
 # linkeddata-trivia
 
-![](https://anchr.io/i/AjD5A.jpg)
+![](https://anchr.io/i/N2ilR.jpg)
 
 ## What is this?
 Originally I got inspired by [this recent post](https://news.ycombinator.com/item?id=13677748) on HackerNews, where [alex_g](https://news.ycombinator.com/user?id=alex_g) has built a quiz, which automatically generates questions from Wikipedia articles using natural language processing (NLP). However, I found the results not that satisfying, yet, and decides to build my own dynamic quiz. Instead of NLP processing I decided to use Linked Data as a base for generating questions. More precisely I'm using the [DBPedia](https://dbpedia.org) knowledge base to retreive fact information from, which mostly originates in Wikipedia articles as well. The data is structured as an RDF graph and can be queried using SPARQL. Despite from the official DBPedia SPARQL endpoint this little proof-of-concept-like app uses another webservice, [kit-lod16-knowledge-panel](https://github.com/n1try/kit-lod16-knowledge-panel), which I developed in the context of the Linked Open Data seminar at university. It is responsible for ranking RDF properties for specific RDF entities by relevance in order to decide, which one to display to an end-user (or include to a quiz).
