@@ -231,7 +231,6 @@ function fetchRandomEntity() {
     console.time('fetchRandomEntity');
     return new Promise((resolve, reject) => {
         client.query(prefixString + `SELECT ?e WHERE { 
-                ?e _:bn1 _:bn2 . 
                 ?e dbo:wikiPageID _:bn3 .
                 ?e rdfs:label _:bn4 
             } 
