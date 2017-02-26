@@ -1,7 +1,7 @@
 'use strict';
 
 const SPARQL_ENDPOINT = 'http://dbpedia.org/sparql',
-    RANKING_ENDPOINT = 'http://http://80.241.215.122:8899/api/ranking';
+    RANKING_ENDPOINT = 'http://80.241.215.122:8899/api/ranking';
 
 const SparqlClient = require('sparql-client'),
     client = new SparqlClient(SPARQL_ENDPOINT),
