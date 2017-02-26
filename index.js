@@ -2,7 +2,7 @@
 
 const express = require('express'),
     app = express(),
-    generator = require('./generator')
+    generator = require('./generator'),
     PORT = 8898;
 
 app.use(express.static('public'));
