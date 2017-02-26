@@ -2,7 +2,8 @@
 
 const express = require('express'),
     app = express(),
-    generator = require('./generator');
+    generator = require('./generator')
+    PORT = 8898;
 
 app.use(express.static('public'));
 
@@ -12,6 +13,6 @@ app.get('/api/random', (req, res) => {
     });
 });
 
-app.listen(8898, function() {
-    console.log('Example app listening on port 3000!');
+app.listen(PORT, function() {
+    console.log(`Example app listening on port ${PORT}!`);
 });
